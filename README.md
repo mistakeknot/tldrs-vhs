@@ -61,6 +61,35 @@ tldrs-vhs get REF [--out]   # fetch to stdout or file
 
 Override root with `TLDRS_VHS_HOME=/path`.
 
+## Add to AGENTS.md / CLAUDE.md
+
+Copy/paste this into a project’s `AGENTS.md` or `CLAUDE.md` to enable
+`vhs://` refs for large tool outputs:
+
+```md
+## VHS (Optional Large Output Storage)
+
+We use `tldrs-vhs` to store large tool outputs locally and pass `vhs://` refs.
+
+Install:
+```bash
+curl -fsSL https://raw.githubusercontent.com/mistakeknot/tldrs-vhs/main/scripts/install.sh | bash
+```
+
+Usage:
+```bash
+# Store tldrs context as ref
+tldrs context <entry> --project . --output vhs
+
+# Include a stored ref in output
+tldrs context <entry> --project . --include vhs://<hash>
+```
+
+Notes:
+- Store location: `~/.tldrs-vhs/` (override with `TLDRS_VHS_HOME`)
+- Refs are local-only; include inline output when sharing
+```
+
 ## Uninstall
 
 ```bash
