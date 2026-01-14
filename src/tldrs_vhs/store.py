@@ -1,0 +1,150 @@
+from __future__ import annotations
+
+import hashlib
+import os
+import shutil
+import sqlite3
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import BinaryIO, Optional
+
+
+DEFAULT_HOME = Path.home() / ".tldrs-vhs"
+SCHEME = "cass://"
+
+
+@dataclass
+class ObjectInfo:
+    hash: str
+    size: int
+    created_at: str
+    last_accessed: str
+
+
+class Store:
+    def __init__(self, root: Optional[Path] = None) -> None:
+        self.root = (root or Path(os.environ.get("TLDRS_VHS_HOME", DEFAULT_HOME))).expanduser().resolve()
+        self.blob_root = self.root / "blobs"
+        self.db_path = self.root / "meta.sqlite"
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.blob_root.mkdir(parents=True, exist_ok=True)
+        self._init_db()
+
+    def _init_db(self) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS objects (
+                    hash TEXT PRIMARY KEY,
+                    size INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    last_accessed TEXT NOT NULL
+                )
+                """
+            )
+
+    def _conn(self) -> sqlite3.Connection:
+        return sqlite3.connect(self.db_path)
+
+    def _now(self) -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    def _blob_path(self, hash_hex: str) -> Path:
+        return self.blob_root / hash_hex[:2] / hash_hex[2:4] / hash_hex
+
+    def has(self, ref: str) -> bool:
+        hash_hex = parse_ref(ref)
+        if not hash_hex:
+            return False
+        path = self._blob_path(hash_hex)
+        if not path.exists():
+            return False
+        self._touch(hash_hex)
+        return True
+
+    def info(self, ref: str) -> Optional[ObjectInfo]:
+        hash_hex = parse_ref(ref)
+        if not hash_hex:
+            return None
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT hash, size, created_at, last_accessed FROM objects WHERE hash = ?",
+                (hash_hex,),
+            ).fetchone()
+        if not row:
+            return None
+        self._touch(hash_hex)
+        return ObjectInfo(*row)
+
+    def get(self, ref: str, out: Optional[Path] = None) -> None:
+        hash_hex = parse_ref(ref)
+        if not hash_hex:
+            raise ValueError("Invalid ref")
+        path = self._blob_path(hash_hex)
+        if not path.exists():
+            raise FileNotFoundError(f"Missing blob for {hash_hex}")
+
+        self._touch(hash_hex)
+
+        if out is None:
+            with path.open("rb") as f:
+                shutil.copyfileobj(f, sys.stdout.buffer)
+        else:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("rb") as f, out.open("wb") as dst:
+                shutil.copyfileobj(f, dst)
+
+    def put(self, stream: BinaryIO) -> str:
+        hasher = hashlib.sha256()
+        temp_path = None
+        size = 0
+
+        self.root.mkdir(parents=True, exist_ok=True)
+        tmp_dir = self.root / "tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        temp_path = tmp_dir / f"upload-{os.getpid()}-{os.urandom(6).hex()}"
+
+        with temp_path.open("wb") as tmp:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                hasher.update(chunk)
+                tmp.write(chunk)
+                size += len(chunk)
+
+        hash_hex = hasher.hexdigest()
+        dest = self._blob_path(hash_hex)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+
+        if not dest.exists():
+            temp_path.replace(dest)
+        else:
+            temp_path.unlink()
+
+        now = self._now()
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO objects (hash, size, created_at, last_accessed) VALUES (?, ?, ?, ?)",
+                (hash_hex, size, now, now),
+            )
+
+        return f"{SCHEME}{hash_hex}"
+
+    def _touch(self, hash_hex: str) -> None:
+        now = self._now()
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE objects SET last_accessed = ? WHERE hash = ?",
+                (now, hash_hex),
+            )
+
+
+def parse_ref(ref: str) -> Optional[str]:
+    if ref.startswith(SCHEME):
+        ref = ref[len(SCHEME):]
+    ref = ref.strip()
+    if len(ref) != 64:
+        return None
+    if not all(c in "0123456789abcdef" for c in ref):
+        return None
+    return ref
