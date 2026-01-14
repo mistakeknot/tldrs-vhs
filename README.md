@@ -5,7 +5,17 @@ small references like `vhs://<sha256>` instead of large blobs.
 
 ## Install
 
+**One-liner (recommended)**
+
 ```bash
+curl -fsSL https://raw.githubusercontent.com/mistakeknot/tldrs-vhs/main/scripts/install.sh | bash
+```
+
+**Manual**
+
+```bash
+git clone https://github.com/mistakeknot/tldrs-vhs
+cd tldrs-vhs
 pip install -e .
 ```
 
@@ -46,3 +56,15 @@ tldrs-vhs get REF [--out]   # fetch to stdout or file
 - Metadata: SQLite at `meta.sqlite`
 
 Override root with `TLDRS_VHS_HOME=/path`.
+
+## Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mistakeknot/tldrs-vhs/main/scripts/uninstall.sh | bash
+```
+
+To also remove local store data:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mistakeknot/tldrs-vhs/main/scripts/uninstall.sh | bash -s -- --purge-store
+```
