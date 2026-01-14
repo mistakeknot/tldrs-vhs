@@ -21,6 +21,12 @@ def _parse_args() -> argparse.Namespace:
     put_p = sub.add_parser("put", help="Store a file or stdin")
     put_p.add_argument("file", nargs="?", default="-", help="File path or '-' for stdin")
     put_p.add_argument("--compress", action="store_true", help="Compress stored payload (zlib)")
+    put_p.add_argument(
+        "--compress-min-bytes",
+        type=int,
+        default=None,
+        help="Compress if payload is at least N bytes",
+    )
 
     get_p = sub.add_parser("get", help="Fetch a ref to stdout or file")
     get_p.add_argument("ref", help="vhs://<hash> or raw hash")
@@ -40,6 +46,7 @@ def _parse_args() -> argparse.Namespace:
 
     ls_p = sub.add_parser("ls", help="List recent refs")
     ls_p.add_argument("--limit", type=int, default=20, help="Max results (default: 20)")
+    ls_p.add_argument("--jsonl", action="store_true", help="Emit one JSON object per line")
 
     stats_p = sub.add_parser("stats", help="Show store statistics")
 
@@ -47,6 +54,7 @@ def _parse_args() -> argparse.Namespace:
     gc_p.add_argument("--max-age-days", type=int, default=None, help="Delete blobs unused for N days")
     gc_p.add_argument("--max-size-mb", type=int, default=None, help="Cap total store size in MB")
     gc_p.add_argument("--dry-run", action="store_true", help="Report what would be deleted")
+    gc_p.add_argument("--keep-last", type=int, default=0, help="Protect newest N blobs from GC")
 
     return parser.parse_args()
 
@@ -57,10 +65,18 @@ def main() -> int:
 
     if args.command == "put":
         if args.file == "-":
-            ref = store.put(sys.stdin.buffer, compress=args.compress)
+            ref = store.put(
+                sys.stdin.buffer,
+                compress=args.compress,
+                compress_min_bytes=args.compress_min_bytes,
+            )
         else:
             with open(args.file, "rb") as f:
-                ref = store.put(f, compress=args.compress)
+                ref = store.put(
+                    f,
+                    compress=args.compress,
+                    compress_min_bytes=args.compress_min_bytes,
+                )
         print(ref)
         return 0
 
@@ -106,7 +122,11 @@ def main() -> int:
 
     if args.command == "ls":
         items = store.list(limit=args.limit)
-        print(json.dumps([i.__dict__ for i in items], indent=2))
+        if args.jsonl:
+            for item in items:
+                print(json.dumps(item.__dict__))
+        else:
+            print(json.dumps([i.__dict__ for i in items], indent=2))
         return 0
 
     if args.command == "stats":
@@ -114,7 +134,12 @@ def main() -> int:
         return 0
 
     if args.command == "gc":
-        result = store.gc(args.max_age_days, args.max_size_mb, dry_run=args.dry_run)
+        result = store.gc(
+            args.max_age_days,
+            args.max_size_mb,
+            dry_run=args.dry_run,
+            keep_last=args.keep_last,
+        )
         print(json.dumps(result, indent=2))
         return 0
 

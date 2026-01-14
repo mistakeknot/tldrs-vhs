@@ -153,28 +153,37 @@ class Store:
                     with path.open("rb") as f:
                         shutil.copyfileobj(f, dst)
 
-    def put(self, stream: BinaryIO, compress: bool = False) -> str:
+    def put(self, stream: BinaryIO, compress: bool = False, compress_min_bytes: Optional[int] = None) -> str:
         hasher = hashlib.sha256()
-        temp_path = None
         size = 0
-        compression = "zlib" if compress else ""
-        compressor = zlib.compressobj(level=6) if compress else None
 
         self.root.mkdir(parents=True, exist_ok=True)
         tmp_dir = self.root / "tmp"
         tmp_dir.mkdir(parents=True, exist_ok=True)
-        temp_path = tmp_dir / f"upload-{os.getpid()}-{os.urandom(6).hex()}"
 
-        with temp_path.open("wb") as tmp:
+        raw_path = tmp_dir / f"upload-raw-{os.getpid()}-{os.urandom(6).hex()}"
+        with raw_path.open("wb") as tmp:
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                 hasher.update(chunk)
-                if compressor:
-                    tmp.write(compressor.compress(chunk))
-                else:
-                    tmp.write(chunk)
+                tmp.write(chunk)
                 size += len(chunk)
-            if compressor:
-                tmp.write(compressor.flush())
+
+        do_compress = compress or (
+            compress_min_bytes is not None and size >= compress_min_bytes
+        )
+        compression = "zlib" if do_compress else ""
+        temp_path = raw_path
+
+        if do_compress:
+            comp_path = tmp_dir / f"upload-{os.getpid()}-{os.urandom(6).hex()}"
+            compressor = zlib.compressobj(level=6)
+            with raw_path.open("rb") as src, comp_path.open("wb") as dst:
+                for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                    dst.write(compressor.compress(chunk))
+                dst.write(compressor.flush())
+            temp_path = comp_path
+            if raw_path.exists():
+                raw_path.unlink()
 
         hash_hex = hasher.hexdigest()
         dest = self._blob_path(hash_hex)
@@ -218,18 +227,34 @@ class Store:
                 (now, hash_hex),
             )
 
-    def gc(self, max_age_days: Optional[int], max_size_mb: Optional[int], dry_run: bool = False) -> dict:
+    def gc(
+        self,
+        max_age_days: Optional[int],
+        max_size_mb: Optional[int],
+        dry_run: bool = False,
+        keep_last: int = 0,
+    ) -> dict:
         now = datetime.now(timezone.utc)
         deleted = 0
         freed_bytes = 0
 
         with self._conn() as conn:
+            protected: set[str] = set()
+            if keep_last and keep_last > 0:
+                protected_rows = conn.execute(
+                    "SELECT hash FROM objects ORDER BY last_accessed DESC LIMIT ?",
+                    (keep_last,),
+                ).fetchall()
+                protected = {row[0] for row in protected_rows}
+
             if max_age_days is not None:
                 cutoff = now.timestamp() - (max_age_days * 86400)
                 rows = conn.execute(
                     "SELECT hash, size, last_accessed FROM objects"
                 ).fetchall()
                 for hash_hex, size, last_accessed in rows:
+                    if hash_hex in protected:
+                        continue
                     try:
                         last_ts = datetime.fromisoformat(last_accessed).timestamp()
                     except Exception:
@@ -254,6 +279,8 @@ class Store:
                     for hash_hex, size in rows:
                         if total <= cap_bytes:
                             break
+                        if hash_hex in protected:
+                            continue
                         if dry_run:
                             deleted += 1
                             freed_bytes += size

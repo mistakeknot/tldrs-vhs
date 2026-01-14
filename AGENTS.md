@@ -23,9 +23,11 @@ tldrs-vhs get "$ref" --out restored.txt
 
 ```bash
 tldrs-vhs ls --limit 20
+tldrs-vhs ls --limit 50 --jsonl
 tldrs-vhs stats
 tldrs-vhs rm "$ref"
 tldrs-vhs gc --dry-run --max-size-mb 500
+tldrs-vhs gc --max-size-mb 500 --keep-last 10
 ```
 
 ## Storage Layout
@@ -37,7 +39,7 @@ tldrs-vhs gc --dry-run --max-size-mb 500
 ## Design Notes
 
 - CLI-only MVP (no daemon/MCP).
-- GC supported via `tldrs-vhs gc --max-age-days` and `--max-size-mb`.
+- GC supported via `tldrs-vhs gc --max-age-days`, `--max-size-mb`, and `--keep-last`.
 - Avoid non-ASCII in files unless already present.
 
 ## Safety

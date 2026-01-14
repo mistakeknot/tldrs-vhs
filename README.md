@@ -30,6 +30,7 @@ cat output.txt | tldrs-vhs put -
 
 # Optional compression
 cat output.txt | tldrs-vhs put - --compress
+cat output.txt | tldrs-vhs put - --compress-min-bytes 1024
 
 # Check if a ref exists
 if tldrs-vhs has "$ref"; then echo "ok"; fi
@@ -47,14 +48,17 @@ tldrs-vhs gc --max-size-mb 500
 ```
 tldrs-vhs put [FILE|-]      # store file or stdin, prints vhs://<hash>
   --compress               # store compressed payload (zlib)
+  --compress-min-bytes N   # compress when payload >= N bytes
 tldrs-vhs get REF [--out]   # fetch to stdout or file
  tldrs-vhs cat REF          # stdout alias for get
  tldrs-vhs has REF          # exit 0 if present
  tldrs-vhs info REF         # show metadata
  tldrs-vhs rm REF           # delete a ref
  tldrs-vhs ls [--limit N]   # list recent refs
+  --jsonl                  # one JSON object per line
  tldrs-vhs stats            # summary stats
  tldrs-vhs gc [options]     # cleanup (age/size)
+  --keep-last N            # protect newest N blobs
 ```
 
 ## Storage

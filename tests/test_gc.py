@@ -53,3 +53,25 @@ def test_gc_dry_run(tmp_path: Path) -> None:
     assert result["deleted"] >= 1
     # Dry run should not delete
     assert store.has(ref) is True
+
+
+def test_gc_keep_last(tmp_path: Path) -> None:
+    store = Store(root=tmp_path)
+
+    ref_old = store.put(BytesIO(b"old"))
+    ref_mid = store.put(BytesIO(b"mid"))
+    ref_new = store.put(BytesIO(b"new"))
+
+    old_ts = datetime(2001, 1, 1, tzinfo=timezone.utc).isoformat()
+    mid_ts = datetime(2002, 1, 1, tzinfo=timezone.utc).isoformat()
+    new_ts = datetime(2003, 1, 1, tzinfo=timezone.utc).isoformat()
+
+    _set_last_accessed(store, _hash_from_ref(ref_old), old_ts)
+    _set_last_accessed(store, _hash_from_ref(ref_mid), mid_ts)
+    _set_last_accessed(store, _hash_from_ref(ref_new), new_ts)
+
+    result = store.gc(max_age_days=None, max_size_mb=0, keep_last=1)
+    assert result["deleted"] >= 2
+    assert store.has(ref_new) is True
+    assert store.has(ref_old) is False
+    assert store.has(ref_mid) is False

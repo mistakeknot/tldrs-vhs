@@ -53,3 +53,19 @@ def test_compressed_roundtrip(tmp_path: Path) -> None:
     out = tmp_path / "out.bin"
     store.get(ref, out=out)
     assert out.read_bytes() == payload
+
+
+def test_compress_min_bytes(tmp_path: Path) -> None:
+    store = Store(root=tmp_path)
+
+    small = b"small payload"
+    ref_small = store.put(BytesIO(small), compress_min_bytes=1024)
+    info_small = store.info(ref_small)
+    assert info_small is not None
+    assert info_small.compression == ""
+
+    big = b"x" * 2048
+    ref_big = store.put(BytesIO(big), compress_min_bytes=1)
+    info_big = store.info(ref_big)
+    assert info_big is not None
+    assert info_big.compression == "zlib"
