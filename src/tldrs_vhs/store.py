@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import zlib
 import sqlite3
 import sys
 from dataclasses import dataclass
@@ -19,6 +20,8 @@ SCHEME = "vhs://"
 class ObjectInfo:
     hash: str
     size: int
+    stored_size: int
+    compression: str
     created_at: str
     last_accessed: str
 
@@ -39,11 +42,23 @@ class Store:
                 CREATE TABLE IF NOT EXISTS objects (
                     hash TEXT PRIMARY KEY,
                     size INTEGER NOT NULL,
+                    stored_size INTEGER NOT NULL DEFAULT 0,
+                    compression TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     last_accessed TEXT NOT NULL
                 )
                 """
             )
+            self._ensure_columns(conn)
+
+    def _ensure_columns(self, conn: sqlite3.Connection) -> None:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(objects)")}
+        if "stored_size" not in cols:
+            conn.execute("ALTER TABLE objects ADD COLUMN stored_size INTEGER NOT NULL DEFAULT 0")
+        if "compression" not in cols:
+            conn.execute("ALTER TABLE objects ADD COLUMN compression TEXT NOT NULL DEFAULT ''")
+        # Backfill stored_size if missing or zero
+        conn.execute("UPDATE objects SET stored_size = size WHERE stored_size = 0")
 
     def _conn(self) -> sqlite3.Connection:
         return sqlite3.connect(self.db_path)
@@ -70,7 +85,7 @@ class Store:
             return None
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT hash, size, created_at, last_accessed FROM objects WHERE hash = ?",
+                "SELECT hash, size, stored_size, compression, created_at, last_accessed FROM objects WHERE hash = ?",
                 (hash_hex,),
             ).fetchone()
         if not row:
@@ -81,7 +96,7 @@ class Store:
     def list(self, limit: int = 20) -> list[ObjectInfo]:
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT hash, size, created_at, last_accessed FROM objects ORDER BY last_accessed DESC LIMIT ?",
+                "SELECT hash, size, stored_size, compression, created_at, last_accessed FROM objects ORDER BY last_accessed DESC LIMIT ?",
                 (limit,),
             ).fetchall()
         return [ObjectInfo(*row) for row in rows]
@@ -89,10 +104,17 @@ class Store:
     def stats(self) -> dict:
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT COUNT(*), COALESCE(SUM(size), 0) FROM objects"
+                "SELECT COUNT(*), COALESCE(SUM(size), 0), COALESCE(SUM(stored_size), 0) FROM objects"
             ).fetchone()
-        count, total_bytes = row if row else (0, 0)
-        return {"count": int(count), "total_bytes": int(total_bytes)}
+        if row:
+            count, total_bytes, total_stored = row
+        else:
+            count, total_bytes, total_stored = (0, 0, 0)
+        return {
+            "count": int(count),
+            "total_bytes": int(total_bytes),
+            "total_stored_bytes": int(total_stored),
+        }
 
     def get(self, ref: str, out: Optional[Path] = None) -> None:
         hash_hex = parse_ref(ref)
@@ -102,20 +124,41 @@ class Store:
         if not path.exists():
             raise FileNotFoundError(f"Missing blob for {hash_hex}")
 
+        compression = ""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT compression FROM objects WHERE hash = ?",
+                (hash_hex,),
+            ).fetchone()
+            if row:
+                compression = row[0] or ""
+
         self._touch(hash_hex)
 
         if out is None:
-            with path.open("rb") as f:
-                shutil.copyfileobj(f, sys.stdout.buffer)
+            dest = sys.stdout.buffer
+            if compression:
+                with path.open("rb") as f:
+                    _decompress_stream(f, dest, compression)
+            else:
+                with path.open("rb") as f:
+                    shutil.copyfileobj(f, dest)
         else:
             out.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("rb") as f, out.open("wb") as dst:
-                shutil.copyfileobj(f, dst)
+            with out.open("wb") as dst:
+                if compression:
+                    with path.open("rb") as f:
+                        _decompress_stream(f, dst, compression)
+                else:
+                    with path.open("rb") as f:
+                        shutil.copyfileobj(f, dst)
 
-    def put(self, stream: BinaryIO) -> str:
+    def put(self, stream: BinaryIO, compress: bool = False) -> str:
         hasher = hashlib.sha256()
         temp_path = None
         size = 0
+        compression = "zlib" if compress else ""
+        compressor = zlib.compressobj(level=6) if compress else None
 
         self.root.mkdir(parents=True, exist_ok=True)
         tmp_dir = self.root / "tmp"
@@ -125,8 +168,13 @@ class Store:
         with temp_path.open("wb") as tmp:
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                 hasher.update(chunk)
-                tmp.write(chunk)
+                if compressor:
+                    tmp.write(compressor.compress(chunk))
+                else:
+                    tmp.write(chunk)
                 size += len(chunk)
+            if compressor:
+                tmp.write(compressor.flush())
 
         hash_hex = hasher.hexdigest()
         dest = self._blob_path(hash_hex)
@@ -137,11 +185,17 @@ class Store:
         else:
             temp_path.unlink()
 
+        stored_size = dest.stat().st_size if dest.exists() else 0
+
         now = self._now()
         with self._conn() as conn:
             conn.execute(
-                "INSERT OR IGNORE INTO objects (hash, size, created_at, last_accessed) VALUES (?, ?, ?, ?)",
-                (hash_hex, size, now, now),
+                """
+                INSERT OR IGNORE INTO objects
+                (hash, size, stored_size, compression, created_at, last_accessed)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (hash_hex, size, stored_size, compression, now, now),
             )
 
         return f"{SCHEME}{hash_hex}"
@@ -233,3 +287,14 @@ def parse_ref(ref: str) -> Optional[str]:
     if not all(c in "0123456789abcdef" for c in ref):
         return None
     return ref
+
+
+def _decompress_stream(src: BinaryIO, dst: BinaryIO, compression: str) -> None:
+    if compression == "zlib":
+        decompressor = zlib.decompressobj()
+        for chunk in iter(lambda: src.read(1024 * 1024), b""):
+            dst.write(decompressor.decompress(chunk))
+        dst.write(decompressor.flush())
+        return
+    # Unknown compression: treat as raw
+    shutil.copyfileobj(src, dst)

@@ -43,3 +43,13 @@ def test_list_stats_delete(tmp_path: Path) -> None:
     deleted = store.delete(refs[0])
     assert deleted is True
     assert store.has(refs[0]) is False
+
+
+def test_compressed_roundtrip(tmp_path: Path) -> None:
+    store = Store(root=tmp_path)
+    payload = b"hello compressed" * 100
+    ref = store.put(BytesIO(payload), compress=True)
+
+    out = tmp_path / "out.bin"
+    store.get(ref, out=out)
+    assert out.read_bytes() == payload

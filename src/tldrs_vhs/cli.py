@@ -20,6 +20,7 @@ def _parse_args() -> argparse.Namespace:
 
     put_p = sub.add_parser("put", help="Store a file or stdin")
     put_p.add_argument("file", nargs="?", default="-", help="File path or '-' for stdin")
+    put_p.add_argument("--compress", action="store_true", help="Compress stored payload (zlib)")
 
     get_p = sub.add_parser("get", help="Fetch a ref to stdout or file")
     get_p.add_argument("ref", help="vhs://<hash> or raw hash")
@@ -56,10 +57,10 @@ def main() -> int:
 
     if args.command == "put":
         if args.file == "-":
-            ref = store.put(sys.stdin.buffer)
+            ref = store.put(sys.stdin.buffer, compress=args.compress)
         else:
             with open(args.file, "rb") as f:
-                ref = store.put(f)
+                ref = store.put(f, compress=args.compress)
         print(ref)
         return 0
 

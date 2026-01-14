@@ -28,6 +28,9 @@ ref=$(tldrs-vhs put path/to/output.txt)
 # Store from stdin
 cat output.txt | tldrs-vhs put -
 
+# Optional compression
+cat output.txt | tldrs-vhs put - --compress
+
 # Check if a ref exists
 if tldrs-vhs has "$ref"; then echo "ok"; fi
 
@@ -43,6 +46,7 @@ tldrs-vhs gc --max-size-mb 500
 
 ```
 tldrs-vhs put [FILE|-]      # store file or stdin, prints vhs://<hash>
+  --compress               # store compressed payload (zlib)
 tldrs-vhs get REF [--out]   # fetch to stdout or file
  tldrs-vhs cat REF          # stdout alias for get
  tldrs-vhs has REF          # exit 0 if present
