@@ -1,3 +1,4 @@
+from io import BytesIO
 from pathlib import Path
 
 from tldrs_vhs.store import Store
@@ -22,3 +23,23 @@ def test_put_get_has_info_roundtrip(tmp_path: Path) -> None:
     out = tmp_path / "out.txt"
     store.get(ref, out=out)
     assert out.read_bytes() == data
+
+
+def test_list_stats_delete(tmp_path: Path) -> None:
+    store = Store(root=tmp_path)
+    refs = []
+    for payload in (b"one", b"two", b"three"):
+        ref = store.put(BytesIO(payload))
+        refs.append(ref)
+
+    stats = store.stats()
+    assert stats["count"] == 3
+    assert stats["total_bytes"] == len(b"one") + len(b"two") + len(b"three")
+
+    items = store.list(limit=2)
+    assert len(items) == 2
+    assert all(item.hash for item in items)
+
+    deleted = store.delete(refs[0])
+    assert deleted is True
+    assert store.has(refs[0]) is False

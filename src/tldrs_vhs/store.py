@@ -78,10 +78,26 @@ class Store:
         self._touch(hash_hex)
         return ObjectInfo(*row)
 
+    def list(self, limit: int = 20) -> list[ObjectInfo]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT hash, size, created_at, last_accessed FROM objects ORDER BY last_accessed DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [ObjectInfo(*row) for row in rows]
+
+    def stats(self) -> dict:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*), COALESCE(SUM(size), 0) FROM objects"
+            ).fetchone()
+        count, total_bytes = row if row else (0, 0)
+        return {"count": int(count), "total_bytes": int(total_bytes)}
+
     def get(self, ref: str, out: Optional[Path] = None) -> None:
         hash_hex = parse_ref(ref)
         if not hash_hex:
-            raise ValueError("Invalid ref")
+            raise ValueError("Invalid ref (expected vhs://<sha256>)")
         path = self._blob_path(hash_hex)
         if not path.exists():
             raise FileNotFoundError(f"Missing blob for {hash_hex}")
@@ -130,6 +146,16 @@ class Store:
 
         return f"{SCHEME}{hash_hex}"
 
+    def delete(self, ref: str) -> bool:
+        hash_hex = parse_ref(ref)
+        if not hash_hex:
+            raise ValueError("Invalid ref (expected vhs://<sha256>)")
+        deleted = self._delete_blob(hash_hex)
+        if deleted:
+            with self._conn() as conn:
+                conn.execute("DELETE FROM objects WHERE hash = ?", (hash_hex,))
+        return deleted
+
     def _touch(self, hash_hex: str) -> None:
         now = self._now()
         with self._conn() as conn:
@@ -138,7 +164,7 @@ class Store:
                 (now, hash_hex),
             )
 
-    def gc(self, max_age_days: Optional[int], max_size_mb: Optional[int]) -> dict:
+    def gc(self, max_age_days: Optional[int], max_size_mb: Optional[int], dry_run: bool = False) -> dict:
         now = datetime.now(timezone.utc)
         deleted = 0
         freed_bytes = 0
@@ -155,10 +181,14 @@ class Store:
                     except Exception:
                         last_ts = now.timestamp()
                     if last_ts < cutoff:
-                        if self._delete_blob(hash_hex):
+                        if dry_run:
                             deleted += 1
                             freed_bytes += size
-                            conn.execute("DELETE FROM objects WHERE hash = ?", (hash_hex,))
+                        else:
+                            if self._delete_blob(hash_hex):
+                                deleted += 1
+                                freed_bytes += size
+                                conn.execute("DELETE FROM objects WHERE hash = ?", (hash_hex,))
 
             if max_size_mb is not None:
                 cap_bytes = max_size_mb * 1024 * 1024
@@ -170,11 +200,16 @@ class Store:
                     for hash_hex, size in rows:
                         if total <= cap_bytes:
                             break
-                        if self._delete_blob(hash_hex):
+                        if dry_run:
                             deleted += 1
                             freed_bytes += size
                             total -= size
-                            conn.execute("DELETE FROM objects WHERE hash = ?", (hash_hex,))
+                        else:
+                            if self._delete_blob(hash_hex):
+                                deleted += 1
+                                freed_bytes += size
+                                total -= size
+                                conn.execute("DELETE FROM objects WHERE hash = ?", (hash_hex,))
 
         return {
             "deleted": deleted,

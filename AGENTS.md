@@ -19,6 +19,15 @@ ref=$(tldrs-vhs put path/to/file)
 tldrs-vhs get "$ref" --out restored.txt
 ```
 
+### CLI Extras
+
+```bash
+tldrs-vhs ls --limit 20
+tldrs-vhs stats
+tldrs-vhs rm "$ref"
+tldrs-vhs gc --dry-run --max-size-mb 500
+```
+
 ## Storage Layout
 
 - Root: `~/.tldrs-vhs/` (override via `TLDRS_VHS_HOME`)

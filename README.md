@@ -44,8 +44,12 @@ tldrs-vhs gc --max-size-mb 500
 ```
 tldrs-vhs put [FILE|-]      # store file or stdin, prints vhs://<hash>
 tldrs-vhs get REF [--out]   # fetch to stdout or file
+ tldrs-vhs cat REF          # stdout alias for get
  tldrs-vhs has REF          # exit 0 if present
  tldrs-vhs info REF         # show metadata
+ tldrs-vhs rm REF           # delete a ref
+ tldrs-vhs ls [--limit N]   # list recent refs
+ tldrs-vhs stats            # summary stats
  tldrs-vhs gc [options]     # cleanup (age/size)
 ```
 

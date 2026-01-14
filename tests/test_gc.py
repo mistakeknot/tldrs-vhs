@@ -43,3 +43,13 @@ def test_gc_max_size(tmp_path: Path) -> None:
     assert result["deleted"] >= 1
     assert store.has(ref_a) is False
     assert store.has(ref_b) is False
+
+
+def test_gc_dry_run(tmp_path: Path) -> None:
+    store = Store(root=tmp_path)
+    ref = store.put(BytesIO(b"payload"))
+
+    result = store.gc(max_age_days=None, max_size_mb=0, dry_run=True)
+    assert result["deleted"] >= 1
+    # Dry run should not delete
+    assert store.has(ref) is True
