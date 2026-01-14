@@ -22,14 +22,18 @@ def _parse_args() -> argparse.Namespace:
     put_p.add_argument("file", nargs="?", default="-", help="File path or '-' for stdin")
 
     get_p = sub.add_parser("get", help="Fetch a ref to stdout or file")
-    get_p.add_argument("ref", help="cass://<hash> or raw hash")
+    get_p.add_argument("ref", help="vhs://<hash> or raw hash")
     get_p.add_argument("--out", default=None, help="Output file path")
 
     has_p = sub.add_parser("has", help="Check if ref exists (exit 0/1)")
-    has_p.add_argument("ref", help="cass://<hash> or raw hash")
+    has_p.add_argument("ref", help="vhs://<hash> or raw hash")
 
     info_p = sub.add_parser("info", help="Show metadata for a ref")
-    info_p.add_argument("ref", help="cass://<hash> or raw hash")
+    info_p.add_argument("ref", help="vhs://<hash> or raw hash")
+
+    gc_p = sub.add_parser("gc", help="Garbage-collect old blobs")
+    gc_p.add_argument("--max-age-days", type=int, default=None, help="Delete blobs unused for N days")
+    gc_p.add_argument("--max-size-mb", type=int, default=None, help="Cap total store size in MB")
 
     return parser.parse_args()
 
@@ -65,6 +69,11 @@ def main() -> int:
             print("{}")
             return 1
         print(json.dumps(info.__dict__, indent=2))
+        return 0
+
+    if args.command == "gc":
+        result = store.gc(args.max_age_days, args.max_size_mb)
+        print(json.dumps(result, indent=2))
         return 0
 
     print("Unknown command", file=sys.stderr)

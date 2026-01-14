@@ -12,7 +12,7 @@ from typing import BinaryIO, Optional
 
 
 DEFAULT_HOME = Path.home() / ".tldrs-vhs"
-SCHEME = "cass://"
+SCHEME = "vhs://"
 
 
 @dataclass
@@ -137,6 +137,56 @@ class Store:
                 "UPDATE objects SET last_accessed = ? WHERE hash = ?",
                 (now, hash_hex),
             )
+
+    def gc(self, max_age_days: Optional[int], max_size_mb: Optional[int]) -> dict:
+        now = datetime.now(timezone.utc)
+        deleted = 0
+        freed_bytes = 0
+
+        with self._conn() as conn:
+            if max_age_days is not None:
+                cutoff = now.timestamp() - (max_age_days * 86400)
+                rows = conn.execute(
+                    "SELECT hash, size, last_accessed FROM objects"
+                ).fetchall()
+                for hash_hex, size, last_accessed in rows:
+                    try:
+                        last_ts = datetime.fromisoformat(last_accessed).timestamp()
+                    except Exception:
+                        last_ts = now.timestamp()
+                    if last_ts < cutoff:
+                        if self._delete_blob(hash_hex):
+                            deleted += 1
+                            freed_bytes += size
+                            conn.execute("DELETE FROM objects WHERE hash = ?", (hash_hex,))
+
+            if max_size_mb is not None:
+                cap_bytes = max_size_mb * 1024 * 1024
+                total = conn.execute("SELECT COALESCE(SUM(size), 0) FROM objects").fetchone()[0]
+                if total > cap_bytes:
+                    rows = conn.execute(
+                        "SELECT hash, size FROM objects ORDER BY last_accessed ASC"
+                    ).fetchall()
+                    for hash_hex, size in rows:
+                        if total <= cap_bytes:
+                            break
+                        if self._delete_blob(hash_hex):
+                            deleted += 1
+                            freed_bytes += size
+                            total -= size
+                            conn.execute("DELETE FROM objects WHERE hash = ?", (hash_hex,))
+
+        return {
+            "deleted": deleted,
+            "freed_bytes": freed_bytes,
+        }
+
+    def _delete_blob(self, hash_hex: str) -> bool:
+        path = self._blob_path(hash_hex)
+        if path.exists():
+            path.unlink()
+            return True
+        return False
 
 
 def parse_ref(ref: str) -> Optional[str]:
