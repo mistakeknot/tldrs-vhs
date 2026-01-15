@@ -69,7 +69,7 @@ fi
 
 # Step 1: Install uv if not present
 echo ""
-echo -e "${BLUE}[1/3]${NC} Checking for uv package manager..."
+echo -e "${BLUE}[1/4]${NC} Checking for uv package manager..."
 
 if command -v uv &> /dev/null; then
     echo -e "  ${GREEN}✓${NC} uv is already installed: $(uv --version)"
@@ -87,7 +87,7 @@ fi
 
 # Step 2: Clone or update repository
 echo ""
-echo -e "${BLUE}[2/3]${NC} Setting up repository..."
+echo -e "${BLUE}[2/4]${NC} Setting up repository..."
 
 if [ -d "$INSTALL_DIR" ]; then
     echo -e "  ${YELLOW}→${NC} Directory exists, updating..."
@@ -102,7 +102,7 @@ echo -e "  ${GREEN}✓${NC} Repository ready at ${INSTALL_DIR}"
 
 # Step 3: Set up Python environment with uv
 echo ""
-echo -e "${BLUE}[3/3]${NC} Setting up Python environment..."
+echo -e "${BLUE}[3/4]${NC} Setting up Python environment..."
 
 if ! uv python find ">=3.10" &>/dev/null; then
     echo -e "  ${YELLOW}→${NC} Installing Python 3.11..."
@@ -134,7 +134,34 @@ else
     fi
 fi
 
+# Step 4: Add shell alias
+echo ""
+echo -e "${BLUE}[4/4]${NC} Adding shell alias..."
+
+SHELL_RC=""
+if [ -f "$HOME/.zshrc" ]; then
+    SHELL_RC="$HOME/.zshrc"
+elif [ -f "$HOME/.bashrc" ]; then
+    SHELL_RC="$HOME/.bashrc"
+fi
+
+if [ -n "$SHELL_RC" ]; then
+    if ! grep -q "alias tldrs-vhs=" "$SHELL_RC" 2>/dev/null; then
+        echo "" >> "$SHELL_RC"
+        echo "# tldrs-vhs" >> "$SHELL_RC"
+        echo "alias tldrs-vhs='cd ${INSTALL_DIR} && uv run tldrs-vhs'" >> "$SHELL_RC"
+        echo -e "  ${GREEN}✓${NC} Added 'tldrs-vhs' alias to ${SHELL_RC}"
+    else
+        echo -e "  ${YELLOW}→${NC} Alias already present in ${SHELL_RC}"
+    fi
+else
+    echo -e "  ${YELLOW}→${NC} No shell rc file found"
+fi
+
 echo ""
 echo -e "${GREEN}Done.${NC}"
 echo -e "Run: ${BLUE}tldrs-vhs --help${NC}"
 echo -e "Store data lives at: ${BLUE}~/.tldrs-vhs/${NC}"
+if [ -n "$SHELL_RC" ]; then
+    echo -e "Restart your shell or run: ${BLUE}source ${SHELL_RC}${NC}"
+fi

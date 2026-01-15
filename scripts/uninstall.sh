@@ -54,7 +54,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo -e "${BLUE}tldrs-vhs Uninstaller${NC}"
+echo -e "${BLUE}╔════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║           tldrs-vhs Uninstaller                                ║${NC}"
+echo -e "${BLUE}╚════════════════════════════════════════════════════════════════╝${NC}"
+echo ""
 
 if [ "$SKIP_CONFIRM" = false ]; then
     echo -e "This will remove: ${GREEN}${INSTALL_DIR}${NC}"
@@ -72,6 +75,34 @@ if [ "$SKIP_CONFIRM" = false ]; then
     fi
 fi
 
+# Step 1: Remove shell alias
+echo ""
+echo -e "${BLUE}[1/3]${NC} Removing shell alias..."
+
+SHELL_RC=""
+if [ -f "$HOME/.zshrc" ]; then
+    SHELL_RC="$HOME/.zshrc"
+elif [ -f "$HOME/.bashrc" ]; then
+    SHELL_RC="$HOME/.bashrc"
+fi
+
+if [ -n "$SHELL_RC" ]; then
+    if grep -q "alias tldrs-vhs=" "$SHELL_RC" 2>/dev/null; then
+        sed -i.bak '/# tldrs-vhs/d' "$SHELL_RC"
+        sed -i.bak '/alias tldrs-vhs=/d' "$SHELL_RC"
+        rm -f "${SHELL_RC}.bak"
+        echo -e "  ${GREEN}✓${NC} Removed alias from ${SHELL_RC}"
+    else
+        echo -e "  ${YELLOW}→${NC} No alias found in ${SHELL_RC}"
+    fi
+else
+    echo -e "  ${YELLOW}→${NC} No shell rc file found"
+fi
+
+# Step 2: Remove installation directory
+echo ""
+echo -e "${BLUE}[2/3]${NC} Removing installation directory..."
+
 if [ -d "$INSTALL_DIR" ]; then
     rm -rf "$INSTALL_DIR"
     echo -e "  ${GREEN}✓${NC} Removed ${INSTALL_DIR}"
@@ -80,8 +111,14 @@ else
 fi
 
 if [ "$PURGE_STORE" = true ]; then
+    echo ""
+    echo -e "${BLUE}[3/3]${NC} Removing store data..."
     rm -rf "${HOME}/.tldrs-vhs"
     echo -e "  ${GREEN}✓${NC} Removed ~/.tldrs-vhs"
 fi
 
+echo ""
 echo -e "${GREEN}Done.${NC}"
+if [ -n "$SHELL_RC" ]; then
+    echo -e "Restart your shell or run: ${BLUE}source ${SHELL_RC}${NC}"
+fi

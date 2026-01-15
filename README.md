@@ -11,11 +11,16 @@ small references like `vhs://<sha256>` instead of large blobs.
 curl -fsSL https://raw.githubusercontent.com/mistakeknot/tldrs-vhs/main/scripts/install.sh | bash
 ```
 
-**Manual**
+This installs dependencies with `uv` and adds a `tldrs-vhs` shell alias.
+
+**Manual (uv recommended)**
 
 ```bash
 git clone https://github.com/mistakeknot/tldrs-vhs
 cd tldrs-vhs
+uv sync
+
+# Or with pip:
 pip install -e .
 ```
 
